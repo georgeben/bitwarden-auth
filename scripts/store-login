@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage:
+#   printf '%s' '{"url":"https://example.com","username":"agent@example.com","password":"secret"}' \
+#     | store-login "Item Name"
+#
+# Optional fields in stdin JSON:
+#   - notes
+#
+# Purpose:
+#   Create a new login item in Vaultwarden / Bitwarden without exposing
+#   credential values on the command line.
+
+ITEM_NAME="${1:?usage: printf '%s' '{\"url\":\"https://example.com\",\"username\":\"agent@example.com\",\"password\":\"secret\"}' | store-login \"Item Name\"}"
+
+if [[ -t 0 ]]; then
+  echo "usage: store-login expects JSON on stdin" >&2
+  exit 1
+fi
+
+LOGIN_JSON="$(cat)"
+
+printf '%s' "$LOGIN_JSON" | jq -e '
+  if (.url // "") == "" then error("Missing url")
+  elif (.username // "") == "" then error("Missing username")
+  elif (.password // "") == "" then error("Missing password")
+  else .
+  end
+' >/dev/null
+
+# Let the Node-based bw CLI trust your local HTTPS setup.
+export NODE_USE_SYSTEM_CA=1
+
+# Read the Vaultwarden master password from macOS Keychain.
+export BW_PASSWORD="$(security find-generic-password -a codex -s bw-master -w)"
+
+# Unlock the vault and capture the session key.
+export BW_SESSION="$(bw unlock --passwordenv BW_PASSWORD --raw)"
+
+# Re-lock on exit, even if something fails.
+trap 'bw lock >/dev/null 2>&1 || true' EXIT
+
+# Make sure the local CLI cache is up to date.
+bw sync >/dev/null
+
+# Fail early if the item already exists. This prevents silent duplicates.
+if bw list items --search "$ITEM_NAME" --nointeraction \
+  | jq -e --arg item_name "$ITEM_NAME" 'map(select(.name == $item_name)) | length > 0' >/dev/null; then
+  echo "An item named '$ITEM_NAME' already exists" >&2
+  exit 1
+fi
+
+ITEM_TEMPLATE="$(bw get template item --session "$BW_SESSION" --nointeraction)"
+LOGIN_TEMPLATE="$(bw get template item.login --session "$BW_SESSION" --nointeraction)"
+
+ENCODED_ITEM="$(
+  jq -n \
+    --arg item_name "$ITEM_NAME" \
+    --argjson item_template "$ITEM_TEMPLATE" \
+    --argjson login_template "$LOGIN_TEMPLATE" \
+    --argjson login_json "$LOGIN_JSON" \
+    '
+      $item_template
+      | .name = $item_name
+      | .type = 1
+      | .notes = ($login_json.notes // "")
+      | .login = (
+          $login_template
+          | .username = $login_json.username
+          | .password = $login_json.password
+          | .totp = ($login_json.totp // null)
+          | .uris = [
+              {
+                match: null,
+                uri: $login_json.url
+              }
+            ]
+        )
+    ' \
+    | bw encode --nointeraction
+)"
+
+CREATED_ITEM_JSON="$(bw create item "$ENCODED_ITEM" --session "$BW_SESSION" --nointeraction)"
+
+# Return only non-secret fields to stdout.
+printf '%s' "$CREATED_ITEM_JSON" | jq -e -c '
+  {
+    id,
+    name,
+    url: (.login.uris[0].uri // ""),
+    username: (.login.username // "")
+  }
+'

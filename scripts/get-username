@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage:
+#   get-username "Item Name"
+#
+# Purpose:
+#   Return only the username from a Vaultwarden/Bitwarden login item.
+#
+# Notes:
+# - Assumes `bw` is already configured to use your local Vaultwarden server.
+# - Assumes the master password is stored in macOS Keychain under:
+#     account = codex
+#     service = bw-master
+# - Unlocks the vault only for this command, then locks it again on exit.
+
+ITEM_NAME="${1:?usage: get-username \"Item Name\"}"
+
+# Make the Node-based Bitwarden CLI trust your local HTTPS setup.
+export NODE_USE_SYSTEM_CA=1
+
+# Read the Vaultwarden master password from macOS Keychain.
+export BW_PASSWORD="$(security find-generic-password -a codex -s bw-master -w)"
+
+# Unlock the vault non-interactively and capture the session key.
+export BW_SESSION="$(bw unlock --passwordenv BW_PASSWORD --raw)"
+
+# Always re-lock the vault when the script exits, even on failure.
+trap 'bw lock >/dev/null 2>&1 || true' EXIT
+
+# Sync first so the CLI sees the latest vault state.
+bw sync >/dev/null
+
+# Print only the username field.
+bw get item "$ITEM_NAME" | python3 -c '
+import json, sys
+item = json.load(sys.stdin)
+username = ((item.get("login") or {}).get("username") or "")
+if not username:
+    raise SystemExit("No username found for item")
+print(username)
+'

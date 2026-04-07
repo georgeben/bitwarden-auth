@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bitwarden Auth"
+  short_description: "Help with Bitwarden auth tasks"
+  default_prompt: "Use $bitwarden-auth to handle Bitwarden authentication setup and troubleshooting."

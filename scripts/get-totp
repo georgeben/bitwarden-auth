@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage:
+#   get-totp "Item Name"
+#
+# Purpose:
+#   Return the current TOTP code for a Vaultwarden/Bitwarden login item.
+#
+# Notes:
+# - The item must already have a TOTP secret configured.
+# - TOTP codes rotate, so callers should use the result immediately.
+
+ITEM_NAME="${1:?usage: get-totp \"Item Name\"}"
+
+# Make the Node-based Bitwarden CLI trust your local HTTPS setup.
+export NODE_USE_SYSTEM_CA=1
+
+# Read the Vaultwarden master password from macOS Keychain.
+export BW_PASSWORD="$(security find-generic-password -a codex -s bw-master -w)"
+
+# Unlock the vault and store the session token in BW_SESSION.
+export BW_SESSION="$(bw unlock --passwordenv BW_PASSWORD --raw)"
+
+# Re-lock as soon as the script finishes.
+trap 'bw lock >/dev/null 2>&1 || true' EXIT
+
+# Sync before reading the item.
+bw sync >/dev/null
+
+# Print the current TOTP code for the specified item.
+bw get totp "$ITEM_NAME"

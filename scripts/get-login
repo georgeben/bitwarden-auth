@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage:
+#   get-login-context "Item Name"
+#
+# Returns:
+#   JSON with:
+#   - url
+#   - username
+#   - password
+
+ITEM_NAME="${1:?usage: get-login-context \"Item Name\"}"
+
+# Let the Node-based bw CLI trust your local HTTPS setup.
+export NODE_USE_SYSTEM_CA=1
+
+# Read the Vaultwarden master password from macOS Keychain.
+export BW_PASSWORD="$(security find-generic-password -a codex -s bw-master -w)"
+
+# Unlock the vault and capture the session key.
+export BW_SESSION="$(bw unlock --passwordenv BW_PASSWORD --raw)"
+
+# Re-lock on exit, even if something fails.
+trap 'bw lock >/dev/null 2>&1 || true' EXIT
+
+# Make sure the local CLI cache is up to date.
+bw sync >/dev/null
+
+# Fetch the item and reduce it to only the fields the agent needs.
+bw get item "$ITEM_NAME" | jq -e -c '
+  .login as $login
+  | {
+      url: ($login.uris[0].uri // ""),
+      username: ($login.username // ""),
+      password: ($login.password // "")
+    }
+  | if .url == "" then error("No login URL found for item")
+    elif .username == "" then error("No username found for item")
+    elif .password == "" then error("No password found for item")
+    else .
+    end
+'
