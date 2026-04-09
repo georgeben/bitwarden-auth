@@ -8,20 +8,9 @@
 - optionally store newly created credentials back into the vault
 
 ## Requirements
-
-The current wrappers assume all of the following:
-
-- Docker with Compose support
 - Bitwarden CLI installed as `bw`
 - `jq`
 - `python3`
-
-OS note:
-
-- The current scripts read the Bitwarden master password using the macOS `security` CLI.
-- Specifically, they call `security find-generic-password -a codex -s bw-master -w`.
-- That is a repo-specific convention, not a Vaultwarden or Bitwarden requirement.
-- If you are on Linux or Windows, update that part of the wrapper scripts to use your platform’s secure secret storage or another local secret-loading mechanism.
 
 
 ## Install the dependencies
@@ -34,23 +23,12 @@ Install [Vaultwarden](https://github.com/dani-garcia/vaultwarden)
 
 Bitwarden CLI documentation can be found [here](https://bitwarden.com/help/cli/#download-and-install)
 
-Note:
 
-```bash
-brew install jq
-```
 
 - If you are running Vaultwarden locally on `localhost`, Bitwarden CLI still expects your self-hosted server URL to use `https://`.
 - In practice, that means you need some way to expose your local Vaultwarden instance over HTTPS before connecting `bw` to it.
 - A reverse proxy such as Caddy is one option, but it is not required. Any approach that gives Bitwarden CLI a working HTTPS endpoint can work.
 - Caddy documentation: <https://caddyserver.com/docs/>
-
-Confirm:
-
-```bash
-jq --version
-python3 --version
-```
 
 ## Start Vaultwarden locally
 
@@ -132,6 +110,7 @@ To create that entry:
 security add-generic-password -U -a codex -s bw-master -w 'YOUR_MASTER_PASSWORD'
 ```
 
+**Note**
 If you are not on macOS, replace that `security find-generic-password ...` step in the wrapper scripts with the secret-loading approach that fits your OS and workflow.
 
 ## Make the wrapper commands available
